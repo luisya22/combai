@@ -1,63 +1,40 @@
-package combai
+package swarmlet
 
 import (
 	"fmt"
+	"io"
 )
 
 // Holds and executes all the pipeline components
-
 type Pipeline struct {
-	Name string
-	Root WorkflowNode
-	// Add base LLM - each node can have a different llm
-	// Memory
+	Name   string
+	Root   WorkflowNode
+	LLM    LLM
+	Memory Memory
 }
 
-type NodeType int
-
-const (
-	LLM_CALL NodeType = iota
-	GATE
-	ROUTER
-	ORCHESTRATOR
-	EVALUATOR
-)
-
-type WorkflowNode interface {
-	ID() string
-	Type() NodeType
-	ExecuteLogic(input string) (string, error)
-	GetChildren() []WorkflowNode
-}
-
-type NodeExecutor interface {
-	Execute(nodeInput string) error
-}
-
-type RunContext struct {
-	RunID       string
-	NodeInputs  map[string]string
-	NodeOutputs map[string]string
-	NodeErrors  map[string]error
-}
-
-func NewRunContext(runID string) *RunContext {
-	return &RunContext{
-		RunID:       runID,
-		NodeInputs:  make(map[string]string),
-		NodeOutputs: make(map[string]string),
-		NodeErrors:  make(map[string]error),
+func NewPipeline(name string, rootNode WorkflowNode, llm LLM, memory Memory) *Pipeline {
+	return &Pipeline{
+		Name:   name,
+		Root:   rootNode,
+		LLM:    llm,
+		Memory: memory,
 	}
 }
 
-func (p *Pipeline) Run(initialInput string, runID string) (finalOutput string, err error) {
+func (p *Pipeline) Run(initialInput string, runID string, w io.Writer) (finalOutput string, err error) {
 	if p.Root == nil {
 		return "", fmt.Errorf("pipeline has no root node")
 	}
 
-	runContext := NewRunContext(runID)
+	runContext := NewRunContext(runID, w)
 
-	err = p.executeNode(p.Root, initialInput, runContext)
+	agentCtx := AgentContext{
+		LLM:    p.LLM,
+		Memory: p.Memory,
+	}
+
+	err = p.executeNode(p.Root, initialInput, agentCtx, runContext)
 	if err != nil {
 		return "", err
 	}
@@ -69,17 +46,12 @@ func (p *Pipeline) Run(initialInput string, runID string) (finalOutput string, e
 func (p *Pipeline) executeNode(
 	node WorkflowNode,
 	nodeInput string,
-	runtContext *RunContext,
+	agentCtx AgentContext,
+	runContext *RunContext,
 ) error {
-	output, err := node.ExecuteLogic(nodeInput)
+	_, err := node.Execute(agentCtx, runContext, nodeInput)
 	if err != nil {
 		return err
-	}
-
-	for _, child := range node.GetChildren() {
-		if err := p.executeNode(child, output, runtContext); err != nil {
-			return err
-		}
 	}
 
 	return nil

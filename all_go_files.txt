@@ -1,0 +1,505 @@
+
+--- ./pipeline.go ---
+package swarmlet
+
+import (
+	"fmt"
+	"io"
+)
+
+// Holds and executes all the pipeline components
+type Pipeline struct {
+	Name   string
+	Root   WorkflowNode
+	LLM    LLM
+	Memory Memory
+}
+
+func NewPipeline(name string, rootNode WorkflowNode, llm LLM, memory Memory) *Pipeline {
+	return &Pipeline{
+		Name:   name,
+		Root:   rootNode,
+		LLM:    llm,
+		Memory: memory,
+	}
+}
+
+func (p *Pipeline) Run(initialInput string, runID string, w io.Writer) (finalOutput string, err error) {
+	if p.Root == nil {
+		return "", fmt.Errorf("pipeline has no root node")
+	}
+
+	runContext := NewRunContext(runID, w)
+
+	agentCtx := AgentContext{
+		LLM:    p.LLM,
+		Memory: p.Memory,
+	}
+
+	err = p.executeNode(p.Root, initialInput, agentCtx, runContext)
+	if err != nil {
+		return "", err
+	}
+
+	finalOutput = runContext.NodeOutputs[p.Root.ID()]
+	return finalOutput, nil
+}
+
+func (p *Pipeline) executeNode(
+	node WorkflowNode,
+	nodeInput string,
+	agentCtx AgentContext,
+	runContext *RunContext,
+) error {
+	_, err := node.Execute(agentCtx, runContext, nodeInput)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+--- ./augmented_node.go ---
+package swarmlet
+
+type AugmentedLLMNode struct {
+	BaseNode
+	systemPrompt   string
+	promptTemplate string
+	LLMOptions     LLMOptions
+	Children       []WorkflowNode
+}
+
+--- ./node.go ---
+package swarmlet
+
+type NodeType int
+
+const (
+	LLM_CALL NodeType = iota
+	GATE
+	ROUTER
+	ORCHESTRATOR
+	EVALUATOR
+)
+
+type WorkflowNode interface {
+	ID() string
+	Execute(ctx AgentContext, runContext *RunContext, input ...string) (string, error)
+}
+
+type BaseNode struct {
+	nodeID   string
+	nodeType string
+}
+
+func (b *BaseNode) ID() string   { return b.nodeID }
+func (b *BaseNode) Type() string { return b.nodeType }
+
+type MemoryAndStreamingConfig struct {
+	UseMemory          bool
+	MemoryKey          string
+	Streaming          bool
+	MaxHistoryMessages int
+}
+
+type AgenticLLMNode struct {
+	InitialPropmtTemplate string
+	MaxIterations         int
+}
+
+--- ./memory.go ---
+package swarmlet
+
+import (
+	"fmt"
+	"sync"
+)
+
+type Memory interface {
+	Get(key string) (any, error)
+	Set(key string, value any) error
+	Append(keys string, value any) error
+}
+
+type DummyMemory struct {
+	store map[string]any
+	mu    sync.RWMutex
+}
+
+func NewDummyMemory() *DummyMemory {
+	return &DummyMemory{
+		store: make(map[string]any),
+	}
+}
+
+func (d *DummyMemory) Get(key string) (any, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	val, ok := d.store[key]
+	if !ok {
+		return nil, fmt.Errorf("key '%s' not found in memory", key)
+	}
+	return val, nil
+}
+func (d *DummyMemory) Set(key string, value any) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.store == nil {
+		d.store = make(map[string]any)
+	}
+	d.store[key] = value
+	return nil
+}
+func (d *DummyMemory) Append(key string, value any) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.store == nil {
+		d.store = make(map[string]any)
+	}
+	if existing, ok := d.store[key].(string); ok {
+		d.store[key] = existing + "\n" + fmt.Sprintf("%v", value)
+	} else {
+		d.store[key] = value
+	}
+	return nil
+}
+
+--- ./run_context.go ---
+package swarmlet
+
+import (
+	"io"
+	"sync"
+)
+
+type RunContext struct {
+	RunID        string
+	NodeInputs   map[string]string
+	NodeOutputs  map[string]string
+	NodeErrors   map[string]error
+	StreamWriter io.Writer
+	mu           sync.RWMutex
+}
+
+func NewRunContext(runID string, w io.Writer) *RunContext {
+	return &RunContext{
+		RunID:        runID,
+		NodeInputs:   make(map[string]string),
+		NodeOutputs:  make(map[string]string),
+		NodeErrors:   make(map[string]error),
+		StreamWriter: w,
+	}
+}
+
+func (rc *RunContext) AddInput(key string, value string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.NodeInputs[key] = value
+}
+
+func (rc *RunContext) GetInput(key string) (string, bool) {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	val, ok := rc.NodeInputs[key]
+	return val, ok
+}
+
+func (rc *RunContext) AddOutput(key string, value string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.NodeOutputs[key] = value
+}
+
+func (rc *RunContext) GetOutput(key string) (string, bool) {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	val, ok := rc.NodeOutputs[key]
+	return val, ok
+}
+
+func (rc *RunContext) AddError(key string, err error) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.NodeErrors[key] = err
+}
+
+func (rc *RunContext) GetError(key string) (error, bool) {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	err, ok := rc.NodeErrors[key]
+	return err, ok
+}
+
+--- ./llm.go ---
+package swarmlet
+
+import (
+	"context"
+	"log"
+	"time"
+
+	"github.com/sashabaranov/go-openai"
+)
+
+type LLM interface {
+	Generate(options LLMOptions, prompt string, messages ...LLMMessage) (string, error)
+}
+
+type LLMOptions struct {
+	Model       string
+	MaxTokens   int
+	Temperature float64
+}
+
+type LLMMessage struct {
+	message string
+	role    string
+}
+
+type DummyLLM struct{}
+
+func (d *DummyLLM) Generate(propmt string, options LLMOptions) (string, error) {
+	time.Sleep(50 * time.Millisecond)
+	log.Printf("(DummyLLM) Generated for: \"%s\"", propmt)
+	return "Simulated LLM response for: " + propmt, nil
+}
+
+type ReverseLLM struct{}
+
+func (d *ReverseLLM) Generate(options LLMOptions, systemPrompt string, messages ...LLMMessage) (string, error) {
+	time.Sleep(50 * time.Millisecond)
+	output := reverseString(messages[0].message)
+	log.Printf("(ReverseLLM) Reversed: \"%s\"", output)
+
+	return output, nil
+}
+
+func reverseString(s string) string {
+	runes := []rune(s)
+	n := len(runes)
+	for i := range len(runes) / 2 {
+		runes[i], runes[n-1-i] = runes[n-1-i], runes[i]
+	}
+
+	return string(runes)
+}
+
+type OpenAILLM struct {
+	ApiKey string
+}
+
+func (llm *OpenAILLM) Generate(options LLMOptions, systemMessage string, messages ...LLMMessage) (string, error) {
+	client := openai.NewClient(llm.ApiKey)
+
+	llmMessages := []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: systemMessage,
+		},
+	}
+	for _, m := range messages {
+		openAIMessasge := openai.ChatCompletionMessage{
+			Role:    m.role,
+			Content: m.message,
+		}
+
+		llmMessages = append(llmMessages, openAIMessasge)
+	}
+
+	resp, err := client.CreateChatCompletion(
+		context.Background(),
+		openai.ChatCompletionRequest{
+			Model:    openai.GPT4oMini,
+			Messages: llmMessages,
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Choices[0].Message.Content, nil
+}
+
+--- ./output_node.go ---
+package swarmlet
+
+import "fmt"
+
+type OutputNode struct {
+	BaseNode
+	FromNode string
+	Visible  bool
+}
+
+func NewOutputNode(id string, fromNode string, visible bool) *OutputNode {
+	return &OutputNode{
+		BaseNode: BaseNode{
+			nodeID: id,
+		},
+		FromNode: fromNode,
+		Visible:  visible,
+	}
+}
+
+func (n *OutputNode) Execute(ctx AgentContext, runContext *RunContext, input ...string) (string, error) {
+	output, ok := runContext.GetOutput(n.FromNode)
+	if !ok {
+		return "", fmt.Errorf("%s: no output found for node '%s'", n.ID(), n.FromNode)
+	}
+
+	if n.Visible && runContext.StreamWriter != nil {
+		_, err := runContext.StreamWriter.Write(fmt.Appendln([]byte{}, output))
+		if err != nil {
+			runContext.AddError(n.ID(), err)
+			return "", err
+		}
+	}
+
+	runContext.AddOutput(n.ID(), output)
+	return "", nil
+}
+
+--- ./agent_context.go ---
+package swarmlet
+
+type AgentContext struct {
+	LLM    LLM
+	Memory Memory
+}
+
+--- ./llm_call_node.go ---
+package swarmlet
+
+import (
+	"fmt"
+	"log"
+)
+
+type LLMCallNode struct {
+	BaseNode
+	SystemPrompt   string
+	PromptTemplate string
+	LLMOptions     LLMOptions
+	Children       []WorkflowNode
+}
+
+func (e *LLMCallNode) Execute(ctx AgentContext, runContext *RunContext, nodeInput ...string) (string, error) {
+	fullPrompt := fmt.Sprintf(e.PromptTemplate, nodeInput)
+	log.Printf("[LLMCallExecutor] Executing prompt: \"%s\"...", fullPrompt)
+
+	runContext.AddInput(e.nodeID, fullPrompt)
+
+	llmMessage := LLMMessage{
+		role:    "user",
+		message: fullPrompt,
+	}
+
+	output, err := ctx.LLM.Generate(e.LLMOptions, e.SystemPrompt, llmMessage)
+	if err != nil {
+		runContext.AddError(e.nodeID, err)
+		return "", err
+	}
+
+	runContext.AddOutput(e.nodeID, output)
+
+	for _, cNode := range e.Children {
+		_, err := cNode.Execute(ctx, runContext, output)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return output, err
+}
+
+type LLMCallOption func(*LLMCallNode)
+
+func WithID(id string) LLMCallOption {
+	return func(node *LLMCallNode) {
+		node.nodeID = id
+	}
+}
+
+func WithSystemPrompt(prompt string) LLMCallOption {
+	return func(node *LLMCallNode) {
+		node.SystemPrompt = prompt
+	}
+}
+
+func WithPropmtTemplate(prompt string) LLMCallOption {
+	return func(node *LLMCallNode) {
+		node.PromptTemplate = prompt
+	}
+}
+
+func WithChildren(children ...WorkflowNode) LLMCallOption {
+	return func(node *LLMCallNode) {
+		node.Children = append(node.Children, children...)
+	}
+}
+
+func WithLLMOptions(opts LLMOptions) LLMCallOption {
+	return func(node *LLMCallNode) {
+		node.LLMOptions = opts
+	}
+}
+
+func NewLLmCallNode(opts ...LLMCallOption) *LLMCallNode {
+	node := &LLMCallNode{
+		PromptTemplate: "%s",
+		LLMOptions: LLMOptions{
+			Temperature: 0.5,
+			MaxTokens:   -1,
+		},
+		Children: []WorkflowNode{},
+	}
+	for _, opt := range opts {
+		opt(node)
+	}
+	return node
+}
+
+--- ./examples/chained_call/main.go ---
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/luisya22/swarmlet"
+)
+
+func main() {
+	output := swarmlet.NewOutputNode("output", "1", true)
+	node1 := swarmlet.NewLLmCallNode(
+		swarmlet.WithID("1"),
+		swarmlet.WithChildren(output),
+		swarmlet.WithSystemPrompt("You are a temperature expert. I will give you a temperature in Celsius and you will return in Farenheit. Return just a simple string with the temperature."),
+	)
+	node2 := swarmlet.NewLLmCallNode(
+		swarmlet.WithID("2"),
+		swarmlet.WithChildren(node1),
+		swarmlet.WithSystemPrompt("You are a temperature expert. Give me plain string of average temperature in this city in Celsius."),
+	)
+	node3 := swarmlet.NewLLmCallNode(
+		swarmlet.WithID("3"),
+		swarmlet.WithChildren(node2),
+		swarmlet.WithSystemPrompt("You are a reverser agent. Return plain message string of the reversed input"),
+	)
+
+	llm := swarmlet.OpenAILLM{
+		ApiKey: os.Getenv("LLM_API_KEY"),
+	}
+	memory := swarmlet.NewDummyMemory()
+
+	pipeline := swarmlet.NewPipeline("Pipeline", node3, &llm, memory)
+
+	stdWriter := os.Stdout
+
+	// San Juan,PR
+	_, err := pipeline.Run("RP, nauJ naS", "102", stdWriter)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
