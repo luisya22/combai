@@ -1,21 +1,32 @@
 package swarmlet
 
 import (
-	"context"
 	"log"
 	"time"
-
-	"github.com/sashabaranov/go-openai"
 )
 
 type LLM interface {
-	Generate(options LLMOptions, prompt string, messages ...LLMMessage) (string, error)
+	Generate(options LLMOptions, tools []LLMTool, prompt string, messages ...LLMMessage) (string, error)
 }
 
 type LLMOptions struct {
 	Model       string
 	MaxTokens   int
 	Temperature float64
+}
+
+// TODO: API to pass tools to LLM, each node could have an individual LLM
+// Need to pass the model to the llm
+type LLMTool struct {
+	Name        string
+	Description string
+	Params      map[string]LLMToolFieldProperty
+}
+
+type LLMToolFieldProperty struct {
+	Type        string
+	Description string
+	Enum        []string
 }
 
 type LLMMessage struct {
@@ -33,7 +44,7 @@ func (d *DummyLLM) Generate(propmt string, options LLMOptions) (string, error) {
 
 type ReverseLLM struct{}
 
-func (d *ReverseLLM) Generate(options LLMOptions, systemPrompt string, messages ...LLMMessage) (string, error) {
+func (d *ReverseLLM) Generate(options LLMOptions, tools []LLMTool, systemPrompt string, messages ...LLMMessage) (string, error) {
 	time.Sleep(50 * time.Millisecond)
 	output := reverseString(messages[0].message)
 	log.Printf("(ReverseLLM) Reversed: \"%s\"", output)
@@ -49,40 +60,4 @@ func reverseString(s string) string {
 	}
 
 	return string(runes)
-}
-
-type OpenAILLM struct {
-	ApiKey string
-}
-
-func (llm *OpenAILLM) Generate(options LLMOptions, systemMessage string, messages ...LLMMessage) (string, error) {
-	client := openai.NewClient(llm.ApiKey)
-
-	llmMessages := []openai.ChatCompletionMessage{
-		{
-			Role:    openai.ChatMessageRoleSystem,
-			Content: systemMessage,
-		},
-	}
-	for _, m := range messages {
-		openAIMessasge := openai.ChatCompletionMessage{
-			Role:    m.role,
-			Content: m.message,
-		}
-
-		llmMessages = append(llmMessages, openAIMessasge)
-	}
-
-	resp, err := client.CreateChatCompletion(
-		context.Background(),
-		openai.ChatCompletionRequest{
-			Model:    openai.GPT4oMini,
-			Messages: llmMessages,
-		},
-	)
-	if err != nil {
-		return "", err
-	}
-
-	return resp.Choices[0].Message.Content, nil
 }

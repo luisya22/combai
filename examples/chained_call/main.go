@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	output := swarmlet.NewOutputNode("output", "3", true)
+	output := swarmlet.NewOutputNode("output", "1", true)
 	node1 := swarmlet.NewLLmCallNode(
 		swarmlet.WithID("1"),
 		swarmlet.WithChildren(output),
@@ -25,12 +25,12 @@ func main() {
 		swarmlet.WithSystemPrompt("You are a reverser agent. Return plain message string of the reversed input"),
 	)
 
-	llm := swarmlet.OpenAILLM{
-		ApiKey: os.Getenv("LLM_API_KEY"),
-	}
+	apiKey := os.Getenv("LLM_API_KEY")
+
+	llm := swarmlet.NewOpenAILLM(apiKey, "gpt-4o-mini")
 	memory := swarmlet.NewDummyMemory()
 
-	pipeline := swarmlet.NewPipeline("Pipeline", node3, &llm, memory)
+	pipeline := swarmlet.NewPipeline("Pipeline", node3, llm, memory)
 
 	stdWriter := os.Stdout
 

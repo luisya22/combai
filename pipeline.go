@@ -34,6 +34,8 @@ func (p *Pipeline) Run(initialInput string, runID string, w io.Writer) (finalOut
 		Memory: p.Memory,
 	}
 
+	fmt.Println("1", initialInput)
+
 	err = p.executeNode(p.Root, initialInput, agentCtx, runContext)
 	if err != nil {
 		return "", err

@@ -15,6 +15,7 @@ type AugmentedLLMNode struct {
 // task: answer user queries, perform actions using available tools, retrieve relevant information, and leverage conversational memory
 // goal: is to provide the most accurate, comprohensive, and helpful response possible
 
+// TODO: pass tools to llms and use libraries for now on how to pass tools
 var systemPrompt = `
 	You are an intelligent assistante designed to %s. Your goal %s.
 
@@ -30,3 +31,10 @@ var systemPrompt = `
 
 
 `
+
+// TODO:
+// Finish the Augmented Node. Test it
+// Add other nodes
+// Add antrophic llm
+// Add Other llms
+// Research how to add Retrieval and Memory
