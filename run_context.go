@@ -6,21 +6,23 @@ import (
 )
 
 type RunContext struct {
-	RunID        string
-	NodeInputs   map[string]string
-	NodeOutputs  map[string]string
-	NodeErrors   map[string]error
-	StreamWriter io.Writer
-	mu           sync.RWMutex
+	RunID          string
+	NodeInputs     map[string]string
+	NodeOutputs    map[string]string
+	NodeErrors     map[string]error
+	StreamWriter   io.Writer
+	MessageHistory map[string][]LLMMessage
+	mu             sync.RWMutex
 }
 
 func NewRunContext(runID string, w io.Writer) *RunContext {
 	return &RunContext{
-		RunID:        runID,
-		NodeInputs:   make(map[string]string),
-		NodeOutputs:  make(map[string]string),
-		NodeErrors:   make(map[string]error),
-		StreamWriter: w,
+		RunID:          runID,
+		NodeInputs:     make(map[string]string),
+		NodeOutputs:    make(map[string]string),
+		NodeErrors:     make(map[string]error),
+		MessageHistory: make(map[string][]LLMMessage),
+		StreamWriter:   w,
 	}
 }
 
@@ -61,4 +63,17 @@ func (rc *RunContext) GetError(key string) (error, bool) {
 	defer rc.mu.RUnlock()
 	err, ok := rc.NodeErrors[key]
 	return err, ok
+}
+
+func (rc *RunContext) AddMessage(key string, value LLMMessage) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.MessageHistory[key] = append(rc.MessageHistory[key], value)
+}
+
+func (rc *RunContext) GetMessages(key string) ([]LLMMessage, bool) {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	val, ok := rc.MessageHistory[key]
+	return val, ok
 }

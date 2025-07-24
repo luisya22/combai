@@ -35,16 +35,16 @@ func (e *LLMCallNode) Execute(ctx AgentContext, runContext *RunContext, nodeInpu
 		return "", err
 	}
 
-	runContext.AddOutput(e.nodeID, output)
+	runContext.AddOutput(e.nodeID, output.message)
 
 	for _, cNode := range e.Children {
-		_, err := cNode.Execute(ctx, runContext, output)
+		_, err := cNode.Execute(ctx, runContext, output.message)
 		if err != nil {
 			return "", err
 		}
 	}
 
-	return output, err
+	return output.message, err
 }
 
 type LLMCallOption func(*LLMCallNode)

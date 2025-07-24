@@ -6,13 +6,13 @@ import (
 )
 
 type LLM interface {
-	Generate(options LLMOptions, tools []LLMTool, prompt string, messages ...LLMMessage) (string, error)
+	Generate(options LLMOptions, tools []LLMTool, prompt string, messages ...LLMMessage) (LLMMessage, error)
 }
 
 type LLMOptions struct {
 	Model       string
 	MaxTokens   int
-	Temperature float64
+	Temperature float32
 }
 
 // TODO: API to pass tools to LLM, each node could have an individual LLM
@@ -21,6 +21,7 @@ type LLMTool struct {
 	Name        string
 	Description string
 	Params      map[string]LLMToolFieldProperty
+	Executor    func(map[string]any) (string, error)
 }
 
 type LLMToolFieldProperty struct {
@@ -30,8 +31,22 @@ type LLMToolFieldProperty struct {
 }
 
 type LLMMessage struct {
-	message string
-	role    string
+	message    string
+	role       string
+	toolCallId string
+	toolCalls  []LLMToolCall
+}
+
+type LLMToolCall struct {
+	index    *int
+	id       string
+	toolType string
+	function LLMFunctionCall
+}
+
+type LLMFunctionCall struct {
+	name      string
+	arguments string
 }
 
 type DummyLLM struct{}

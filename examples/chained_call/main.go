@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	output := swarmlet.NewOutputNode("output", "1", true)
+	output := swarmlet.NewOutputNode("output", "2", true)
 	node1 := swarmlet.NewLLmCallNode(
 		swarmlet.WithID("1"),
 		swarmlet.WithChildren(output),
