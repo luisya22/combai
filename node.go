@@ -1,5 +1,7 @@
 package swarmlet
 
+import "context"
+
 type NodeType int
 
 const (
@@ -12,7 +14,7 @@ const (
 
 type WorkflowNode interface {
 	ID() string
-	Execute(ctx AgentContext, runContext *RunContext, input ...string) (string, error)
+	Execute(ctx context.Context, agentContext AgentContext, runContext *RunContext, input ...string) (string, error)
 }
 
 type BaseNode struct {

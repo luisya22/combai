@@ -1,6 +1,7 @@
 package swarmlet
 
 import (
+	"context"
 	"fmt"
 	"log"
 )
@@ -14,7 +15,7 @@ type LLMCallNode struct {
 	Children       []WorkflowNode
 }
 
-func (e *LLMCallNode) Execute(ctx AgentContext, runContext *RunContext, nodeInput ...string) (string, error) {
+func (e *LLMCallNode) Execute(ctx context.Context, agentContext AgentContext, runContext *RunContext, nodeInput ...string) (string, error) {
 	anyInput := make([]any, len(nodeInput))
 	for i, v := range nodeInput {
 		anyInput[i] = v
@@ -29,7 +30,7 @@ func (e *LLMCallNode) Execute(ctx AgentContext, runContext *RunContext, nodeInpu
 		message: fullPrompt,
 	}
 
-	output, err := ctx.LLM.Generate(e.LLMOptions, e.LLMTools, e.SystemPrompt, llmMessage)
+	output, err := agentContext.LLM.Generate(ctx, e.LLMOptions, e.LLMTools, e.SystemPrompt, llmMessage)
 	if err != nil {
 		runContext.AddError(e.nodeID, err)
 		return "", err
@@ -38,7 +39,7 @@ func (e *LLMCallNode) Execute(ctx AgentContext, runContext *RunContext, nodeInpu
 	runContext.AddOutput(e.nodeID, output.message)
 
 	for _, cNode := range e.Children {
-		_, err := cNode.Execute(ctx, runContext, output.message)
+		_, err := cNode.Execute(ctx, agentContext, runContext, output.message)
 		if err != nil {
 			return "", err
 		}

@@ -1,6 +1,7 @@
 package swarmlet
 
 import (
+	"context"
 	"fmt"
 	"io"
 )
@@ -22,7 +23,7 @@ func NewPipeline(name string, rootNode WorkflowNode, llm LLM, memory Memory) *Pi
 	}
 }
 
-func (p *Pipeline) Run(initialInput string, runID string, w io.Writer) (finalOutput string, err error) {
+func (p *Pipeline) Run(ctx context.Context, initialInput string, runID string, w io.Writer) (finalOutput string, err error) {
 	if p.Root == nil {
 		return "", fmt.Errorf("pipeline has no root node")
 	}
@@ -36,7 +37,7 @@ func (p *Pipeline) Run(initialInput string, runID string, w io.Writer) (finalOut
 
 	fmt.Println("1", initialInput)
 
-	err = p.executeNode(p.Root, initialInput, agentCtx, runContext)
+	err = p.executeNode(ctx, p.Root, initialInput, agentCtx, runContext)
 	if err != nil {
 		return "", err
 	}
@@ -46,12 +47,13 @@ func (p *Pipeline) Run(initialInput string, runID string, w io.Writer) (finalOut
 }
 
 func (p *Pipeline) executeNode(
+	ctx context.Context,
 	node WorkflowNode,
 	nodeInput string,
 	agentCtx AgentContext,
 	runContext *RunContext,
 ) error {
-	_, err := node.Execute(agentCtx, runContext, nodeInput)
+	_, err := node.Execute(ctx, agentCtx, runContext, nodeInput)
 	if err != nil {
 		return err
 	}

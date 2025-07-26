@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 
@@ -44,7 +45,7 @@ func main() {
 	stdWriter := os.Stdout
 
 	// San Juan,PR
-	_, err := pipeline.Run("What is the temperature in Nebraska", "102", stdWriter)
+	_, err := pipeline.Run(context.Background(), "What is the temperature in Nebraska", "102", stdWriter)
 	if err != nil {
 		log.Fatal(err)
 	}

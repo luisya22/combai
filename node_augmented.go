@@ -1,6 +1,7 @@
 package swarmlet
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -71,7 +72,7 @@ func NewAugmentedLLMNode(opts ...AugmentedLLMNodeOption) *AugmentedLLMNode {
 	return node
 }
 
-func (e *AugmentedLLMNode) Execute(ctx AgentContext, runCtx *RunContext, nodeInput ...string) (string, error) {
+func (e *AugmentedLLMNode) Execute(ctx context.Context, agentContext AgentContext, runCtx *RunContext, nodeInput ...string) (string, error) {
 	anyInput := make([]any, len(nodeInput))
 	for i, v := range nodeInput {
 		anyInput[i] = v
@@ -93,7 +94,7 @@ func (e *AugmentedLLMNode) Execute(ctx AgentContext, runCtx *RunContext, nodeInp
 		log.Printf("[AugmentedLLMNode-%s] Iteration %d: Calling LLM with %d messages and %d tools.\n", e.nodeID, i+1, len(runCtx.MessageHistory), len(e.tools))
 
 		messages, _ := runCtx.GetMessages(e.nodeID)
-		llmResponse, err := ctx.LLM.Generate(e.LLMOptions, e.tools, e.systemPrompt, messages...)
+		llmResponse, err := agentContext.LLM.Generate(ctx, e.LLMOptions, e.tools, e.systemPrompt, messages...)
 		if err != nil {
 			runCtx.AddError(e.nodeID, err)
 			return "", err
@@ -180,7 +181,7 @@ func (e *AugmentedLLMNode) Execute(ctx AgentContext, runCtx *RunContext, nodeInp
 	}
 
 	for _, cNode := range e.Children {
-		_, err := cNode.Execute(ctx, runCtx, finalResponse)
+		_, err := cNode.Execute(ctx, agentContext, runCtx, finalResponse)
 		if err != nil {
 			return "", err
 		}

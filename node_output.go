@@ -1,6 +1,9 @@
 package swarmlet
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 type OutputNode struct {
 	BaseNode
@@ -18,7 +21,7 @@ func NewOutputNode(id string, fromNode string, visible bool) *OutputNode {
 	}
 }
 
-func (n *OutputNode) Execute(ctx AgentContext, runContext *RunContext, input ...string) (string, error) {
+func (n *OutputNode) Execute(ctx context.Context, agentContext AgentContext, runContext *RunContext, input ...string) (string, error) {
 	output, ok := runContext.GetOutput(n.FromNode)
 	if !ok {
 		return "", fmt.Errorf("%s: no output found for node '%s'", n.ID(), n.FromNode)

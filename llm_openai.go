@@ -19,7 +19,7 @@ func NewOpenAILLM(apiKey string, model string) *openAILLM {
 	}
 }
 
-func (llm *openAILLM) Generate(options LLMOptions, tools []LLMTool, systemMessage string, messages ...LLMMessage) (LLMMessage, error) {
+func (llm *openAILLM) Generate(ctx context.Context, options LLMOptions, tools []LLMTool, systemMessage string, messages ...LLMMessage) (LLMMessage, error) {
 	client := openai.NewClient(llm.apiKey)
 
 	llmMessages := []openai.ChatCompletionMessage{

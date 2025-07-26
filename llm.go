@@ -1,12 +1,13 @@
 package swarmlet
 
 import (
+	"context"
 	"log"
 	"time"
 )
 
 type LLM interface {
-	Generate(options LLMOptions, tools []LLMTool, prompt string, messages ...LLMMessage) (LLMMessage, error)
+	Generate(ctx context.Context, options LLMOptions, tools []LLMTool, prompt string, messages ...LLMMessage) (LLMMessage, error)
 }
 
 type LLMOptions struct {
